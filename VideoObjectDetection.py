@@ -51,38 +51,49 @@ class MainWidget(QtWidgets.QWidget):
         #
         self.setFixedSize(800, 800)
 
+        self.detection_graph = tf.Graph()
+        with  self.detection_graph.as_default():
+            od_graph_def = tf.GraphDef()
+            with tf.gfile.GFile(tensorflow_filepath, 'rb') as fid:
+                serialized_graph = fid.read()
+                od_graph_def.ParseFromString(serialized_graph)
+                tf.import_graph_def(od_graph_def, name='')
 
     def openCamera(self):
-            self.vc = cv2.VideoCapture(1)
-            self.vc.set(5, 30)  #set FPS
-            self.vc.set(3, 640)  # set width
-            self.vc.set(4, 480)  # set height
+        self.vc = cv2.VideoCapture(1)
+        # self.vc.set(5, 30)  #set FPS
+        # self.vc.set(3, 640)  # set width
+        # self.vc.set(4, 480)  # set height
 
-            if not self.vc.isOpened():
-                msgBox = QtWidgets.QMessageBox()
-                msgBox.setText("Failed to open camera.")
-                msgBox.exec_()
-                return
+        if not self.vc.isOpened():
+            msgBox = QtWidgets.QMessageBox()
+            msgBox.setText("Failed to open camera.")
+            msgBox.exec_()
+            return
 
-            self.timer.start(1000. / 24)
+        self.timer.start(10000. / 24)
 
     def stopCamera(self):
         self.timer.stop()
 
+    current_time = datetime.datetime.now()
+
     def nextFrameSlot(self):
+        print( datetime.datetime.now()-self.current_time)
+        self.current_time = datetime.datetime.now()
         rval, frame = self.vc.read()
-        with tf.Session(graph=detection_graph) as sess:
+
+        with tf.Session(graph= self.detection_graph) as sess:
             with tf.Session() as sess:
-                current_time1 = datetime.datetime.now()
                 image_np_expanded = np.expand_dims(frame, axis=0)
-                image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
+                image_tensor = self.detection_graph.get_tensor_by_name('image_tensor:0')
                 # Each box represents a part of the image where a particular object was detected.
-                boxes = detection_graph.get_tensor_by_name('detection_boxes:0')
+                boxes = self.detection_graph.get_tensor_by_name('detection_boxes:0')
                 # Each score represent how level of confidence for each of the objects.
                 # Score is shown on the result image, together with the class label.
-                scores = detection_graph.get_tensor_by_name('detection_scores:0')
-                classes = detection_graph.get_tensor_by_name('detection_classes:0')
-                num_detections = detection_graph.get_tensor_by_name('num_detections:0')
+                scores = self.detection_graph.get_tensor_by_name('detection_scores:0')
+                classes = self.detection_graph.get_tensor_by_name('detection_classes:0')
+                num_detections = self.detection_graph.get_tensor_by_name('num_detections:0')
                 # Actual detection.
                 (boxes, scores, classes, num_detections) = sess.run([boxes, scores, classes, num_detections],
                                                                     feed_dict={image_tensor: image_np_expanded})
@@ -94,13 +105,12 @@ class MainWidget(QtWidgets.QWidget):
                                                                    category_index,
                                                                    use_normalized_coordinates=True,
                                                                    line_thickness=8)
-                current_time2 = datetime.datetime.now()
-                print(current_time2 - current_time1)
 
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         image = QtGui.QImage(frame, frame.shape[1], frame.shape[0], QtGui.QImage.Format_RGB888)
         pixmap = QtGui.QPixmap.fromImage(image)
         self.label.setPixmap(pixmap)
+
         # results = dbr.decodeBuffer(frame, 0x3FF | 0x2000000 | 0x4000000 | 0x8000000 | 0x10000000)
         # out = ''
         # index = 0
@@ -133,11 +143,6 @@ if __name__ == '__main__':
     label_map = label_map_util.load_labelmap('mscoco_label_map.pbtxt')
     categories = label_map_util.convert_label_map_to_categories(label_map, max_num_classes=90, use_display_name=True)
     category_index = label_map_util.create_category_index(categories)
-    detection_graph = tf.Graph()
-    with detection_graph.as_default():
-        od_graph_def = tf.GraphDef()
-        with tf.gfile.GFile(tensorflow_filepath, 'rb') as fid:
-            serialized_graph = fid.read()
-            od_graph_def.ParseFromString(serialized_graph)
-            tf.import_graph_def(od_graph_def, name='')
-    main()
+
+
+main()
