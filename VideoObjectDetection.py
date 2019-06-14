@@ -2,6 +2,7 @@ import sys
 from os import path
 import datetime
 import time
+import threading
 import cv2
 import numpy as np
 import tensorflow as tf
@@ -52,7 +53,7 @@ class MainWidget(QtWidgets.QWidget):
         self.setFixedSize(800, 800)
 
         self.detection_graph = tf.Graph()
-        with  self.detection_graph.as_default():
+        with self.detection_graph.as_default():
             od_graph_def = tf.GraphDef()
             with tf.gfile.GFile(tensorflow_filepath, 'rb') as fid:
                 serialized_graph = fid.read()
@@ -60,7 +61,7 @@ class MainWidget(QtWidgets.QWidget):
                 tf.import_graph_def(od_graph_def, name='')
 
     def openCamera(self):
-        self.vc = cv2.VideoCapture(1)
+        self.vc = cv2.VideoCapture(0)
         # self.vc.set(5, 30)  #set FPS
         # self.vc.set(3, 640)  # set width
         # self.vc.set(4, 480)  # set height
@@ -72,6 +73,8 @@ class MainWidget(QtWidgets.QWidget):
             return
 
         self.timer.start(10000. / 24)
+
+
 
     def stopCamera(self):
         self.timer.stop()
