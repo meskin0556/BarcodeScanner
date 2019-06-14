@@ -1,4 +1,5 @@
 import numpy as np
+import datetime
 import os
 import six.moves.urllib as urllib
 import sys
@@ -10,6 +11,10 @@ from os import path
 from collections import defaultdict
 from io import StringIO
 from matplotlib import pyplot as plt
+
+
+from object_detection.utils import label_map_util
+from object_detection.utils import visualization_utils as vis_util
 
 
 import cv2
@@ -26,6 +31,9 @@ tensorflow_filepath = path.join(script_dir,
 
 tensorflow_filepath = path.abspath(tensorflow_filepath)
 
+label_map = label_map_util.load_labelmap('mscoco_label_map.pbtxt')
+categories = label_map_util.convert_label_map_to_categories(label_map, max_num_classes=90, use_display_name=True)
+category_index = label_map_util.create_category_index(categories)
 
 
 detection_graph = tf.Graph()
@@ -43,38 +51,29 @@ with detection_graph.as_default():
             ret, image_np = cap.read()
             # Expand dimensions since the model expects images to have shape: [1, None, None, 3]
             image_np_expanded = np.expand_dims(image_np, axis=0)
-            # image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
+            current_time1 = datetime.datetime.now()
+            image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
             # Each box represents a part of the image where a particular object was detected.
-            # boxes = detection_graph.get_tensor_by_name('detection_boxes:0')
+            boxes = detection_graph.get_tensor_by_name('detection_boxes:0')
             # Each score represent how level of confidence for each of the objects.
             # Score is shown on the result image, together with the class label.
-            # scores = detection_graph.get_tensor_by_name('detection_scores:0')
-            # classes = detection_graph.get_tensor_by_name('detection_classes:0')
-            # num_detections = detection_graph.get_tensor_by_name('num_detections:0')
+            scores = detection_graph.get_tensor_by_name('detection_scores:0')
+            classes = detection_graph.get_tensor_by_name('detection_classes:0')
+            num_detections = detection_graph.get_tensor_by_name('num_detections:0')
             # Actual detection.
-            objects = sess.run([sess.graph.get_tensor_by_name('num_detections:0'),
-                                sess.graph.get_tensor_by_name('detection_scores:0'),
-                                sess.graph.get_tensor_by_name('detection_boxes:0'),
-                                sess.graph.get_tensor_by_name('detection_classes:0')],
-                               feed_dict={
-                                   'image_tensor:0': image_np.reshape(1, image_np.shape[0], image_np.shape[1],
-                                                                        3)})
-            num_detections = int(objects[0][0])
+            (boxes, scores, classes, num_detections) = sess.run([boxes, scores, classes, num_detections],
+                                                                feed_dict = {image_tensor: image_np_expanded})
             # Visualization of the results of a detection.
-            objectNumber = int(objects[0][0])
-            for i in range(objectNumber):
-                classId = int(objects[3][0][i])
-                score = float(objects[1][0][i])
-                bbox = [float(v) for v in objects[2][0][i]]
-                rows = image_np.shape[0]
-                cols = image_np.shape[1]
-                if score > 0.3:
-                    x = bbox[1] * cols
-                    y = bbox[0] * rows
-                    right = bbox[3] * cols
-                    bottom = bbox[2] * rows
-                    cv2.rectangle(image_np, (int(x), int(y)), (int(right), int(bottom)), (125, 255, 51), thickness=2)
+            vis_util.visualize_boxes_and_labels_on_image_array(image_np,
+                                                               np.squeeze(boxes),
+                                                               np.squeeze(classes).astype(np.int32),
+                                                               np.squeeze(scores),
+                                                               category_index,
+                                                               use_normalized_coordinates = True,
+                                                               line_thickness = 8)
 
+            current_time2 = datetime.datetime.now()
+            print(current_time2 - current_time1)
             cv2.imshow('object detection', cv2.resize(image_np, (800, 600)))
             if cv2.waitKey(25) & 0xFF == ord('q'):
                 cv2.destroyAllWindows()

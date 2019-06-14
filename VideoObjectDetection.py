@@ -1,6 +1,7 @@
 import sys
 from os import path
-
+import datetime
+import time
 import cv2
 import numpy as np
 import tensorflow as tf
@@ -8,7 +9,8 @@ import tensorflow as tf
 from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
-
+from object_detection.utils import label_map_util
+from object_detection.utils import visualization_utils as vis_util
 
 class RecordVideo(QtCore.QObject):
     image_data = QtCore.pyqtSignal(np.ndarray)
@@ -16,7 +18,6 @@ class RecordVideo(QtCore.QObject):
     def __init__(self, camera_port=1, parent=None):
         super().__init__(parent)
         self.camera = cv2.VideoCapture(camera_port)
-
         self.timer = QtCore.QBasicTimer()
 
     def start_recording(self):
@@ -25,7 +26,7 @@ class RecordVideo(QtCore.QObject):
     def timerEvent(self, event):
         if (event.timerId() != self.timer.timerId()):
             return
-
+        # time.sleep(1000)
         read, data = self.camera.read()
         if read:
             self.image_data.emit(data)
@@ -34,38 +35,38 @@ class RecordVideo(QtCore.QObject):
 class ObjectDetectionWidget(QtWidgets.QWidget):
     def __init__(self, tensorflow_filepath, parent=None):
         super().__init__(parent)
-        with tf.gfile.FastGFile(tensorflow_filepath, 'rb') as f:
-            graph_def = tf.GraphDef()
-            graph_def.ParseFromString(f.read())
-        with tf.Session() as sess:
-            # Restore session
-            sess.graph.as_default()
-            tf.import_graph_def(graph_def, name='')
+
         self.image = QtGui.QImage()
         self._red = (0, 0, 255)
         self._width = 2
         self._min_size = (30, 30)
 
     def image_data_slot(self, image_data):
-        with tf.Session() as sess:
-            objects = sess.run([sess.graph.get_tensor_by_name('num_detections:0'),
-                                sess.graph.get_tensor_by_name('detection_scores:0'),
-                                sess.graph.get_tensor_by_name('detection_boxes:0'),
-                                sess.graph.get_tensor_by_name('detection_classes:0')],
-                               feed_dict={'image_tensor:0': image_data.reshape(1, image_data.shape[0], image_data.shape[1], 3)})
-        num_detections = int(objects[0][0])
-        for i in range(num_detections):
-            classId = int(objects[3][0][i])
-            score = float(objects[1][0][i])
-            bbox = [float(v) for v in objects[2][0][i]]
-            rows = image_data.shape[0]
-            cols = image_data.shape[1]
-            if score > 0.3:
-                x = bbox[1] * cols
-                y = bbox[0] * rows
-                right = bbox[3] * cols
-                bottom = bbox[2] * rows
-                cv2.rectangle(image_data, (int(x), int(y)), (int(right), int(bottom)), (125, 255, 51), thickness=2)
+        with tf.Session(graph=detection_graph) as sess:
+            with tf.Session() as sess:
+                current_time1 = datetime.datetime.now()
+                image_np_expanded = np.expand_dims(image_data, axis=0)
+                image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
+                # Each box represents a part of the image where a particular object was detected.
+                boxes = detection_graph.get_tensor_by_name('detection_boxes:0')
+                # Each score represent how level of confidence for each of the objects.
+                # Score is shown on the result image, together with the class label.
+                scores = detection_graph.get_tensor_by_name('detection_scores:0')
+                classes = detection_graph.get_tensor_by_name('detection_classes:0')
+                num_detections = detection_graph.get_tensor_by_name('num_detections:0')
+                # Actual detection.
+                (boxes, scores, classes, num_detections) = sess.run([boxes, scores, classes, num_detections],
+                                                                    feed_dict={image_tensor: image_np_expanded})
+                # Visualization of the results of a detection.
+                vis_util.visualize_boxes_and_labels_on_image_array(image_data,
+                                                                   np.squeeze(boxes),
+                                                                   np.squeeze(classes).astype(np.int32),
+                                                                   np.squeeze(scores),
+                                                                   category_index,
+                                                                   use_normalized_coordinates=True,
+                                                                   line_thickness=8)
+                current_time2 = datetime.datetime.now()
+                print(current_time2 - current_time1)
         self.image = self.get_qimage(image_data)
         if self.image.size() != self.size():
             self.setFixedSize(self.image.size())
@@ -136,5 +137,15 @@ if __name__ == '__main__':
                                  'frozen_inference_graph.pb')
 
     tensorflow_filepath = path.abspath(tensorflow_filepath)
+    label_map = label_map_util.load_labelmap('mscoco_label_map.pbtxt')
+    categories = label_map_util.convert_label_map_to_categories(label_map, max_num_classes=90, use_display_name=True)
+    category_index = label_map_util.create_category_index(categories)
+    detection_graph = tf.Graph()
+    with detection_graph.as_default():
+        od_graph_def = tf.GraphDef()
+        with tf.gfile.GFile(tensorflow_filepath, 'rb') as fid:
+            serialized_graph = fid.read()
+            od_graph_def.ParseFromString(serialized_graph)
+            tf.import_graph_def(od_graph_def, name='')
 
 main(tensorflow_filepath)
