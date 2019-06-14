@@ -12,40 +12,69 @@ from PyQt5 import QtGui
 from object_detection.utils import label_map_util
 from object_detection.utils import visualization_utils as vis_util
 
-class RecordVideo(QtCore.QObject):
-    image_data = QtCore.pyqtSignal(np.ndarray)
+class MainWidget(QtWidgets.QWidget):
+    def __init__(self):
+        QtWidgets.QWidget.__init__(self)
 
-    def __init__(self, camera_port=1, parent=None):
-        super().__init__(parent)
-        self.camera = cv2.VideoCapture(camera_port)
-        self.timer = QtCore.QBasicTimer()
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.nextFrameSlot)
 
-    def start_recording(self):
-        self.timer.start(0, self)
+        layout = QtWidgets.QVBoxLayout()
 
-    def timerEvent(self, event):
-        if (event.timerId() != self.timer.timerId()):
-            return
-        # time.sleep(1000)
-        read, data = self.camera.read()
-        if read:
-            self.image_data.emit(data)
+        button_layout = QtWidgets.QHBoxLayout()
+
+        btnCamera = QtWidgets.QPushButton("Open camera")
+        btnCamera.clicked.connect(self.openCamera)
+        button_layout.addWidget(btnCamera)
+
+        btnCamera = QtWidgets.QPushButton("Stop camera")
+        btnCamera.clicked.connect(self.stopCamera)
+        button_layout.addWidget(btnCamera)
+
+        layout.addLayout(button_layout)
+
+        # Add a label
+        self.label = QtWidgets.QLabel()
+        self.label.setFixedSize(640, 480)
+        # pixmap = self.resizeImage(filename)
+        # self.label.setPixmap(pixmap)
+        layout.addWidget(self.label)
+
+        # Add a text area
+        self.results = QtWidgets.QTextEdit()
+        # self.readBarcode(filename)
+        layout.addWidget(self.results)
+        #
+        # Set the layout
+        self.setLayout(layout)
+        self.setWindowTitle("Object Detection")
+        #
+        self.setFixedSize(800, 800)
 
 
-class ObjectDetectionWidget(QtWidgets.QWidget):
-    def __init__(self, tensorflow_filepath, parent=None):
-        super().__init__(parent)
+    def openCamera(self):
+            self.vc = cv2.VideoCapture(1)
+            self.vc.set(5, 30)  #set FPS
+            self.vc.set(3, 640)  # set width
+            self.vc.set(4, 480)  # set height
 
-        self.image = QtGui.QImage()
-        self._red = (0, 0, 255)
-        self._width = 2
-        self._min_size = (30, 30)
+            if not self.vc.isOpened():
+                msgBox = QtWidgets.QMessageBox()
+                msgBox.setText("Failed to open camera.")
+                msgBox.exec_()
+                return
 
-    def image_data_slot(self, image_data):
+            self.timer.start(1000. / 24)
+
+    def stopCamera(self):
+        self.timer.stop()
+
+    def nextFrameSlot(self):
+        rval, frame = self.vc.read()
         with tf.Session(graph=detection_graph) as sess:
             with tf.Session() as sess:
                 current_time1 = datetime.datetime.now()
-                image_np_expanded = np.expand_dims(image_data, axis=0)
+                image_np_expanded = np.expand_dims(frame, axis=0)
                 image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
                 # Each box represents a part of the image where a particular object was detected.
                 boxes = detection_graph.get_tensor_by_name('detection_boxes:0')
@@ -58,7 +87,7 @@ class ObjectDetectionWidget(QtWidgets.QWidget):
                 (boxes, scores, classes, num_detections) = sess.run([boxes, scores, classes, num_detections],
                                                                     feed_dict={image_tensor: image_np_expanded})
                 # Visualization of the results of a detection.
-                vis_util.visualize_boxes_and_labels_on_image_array(image_data,
+                vis_util.visualize_boxes_and_labels_on_image_array(frame,
                                                                    np.squeeze(boxes),
                                                                    np.squeeze(classes).astype(np.int32),
                                                                    np.squeeze(scores),
@@ -67,64 +96,28 @@ class ObjectDetectionWidget(QtWidgets.QWidget):
                                                                    line_thickness=8)
                 current_time2 = datetime.datetime.now()
                 print(current_time2 - current_time1)
-        self.image = self.get_qimage(image_data)
-        if self.image.size() != self.size():
-            self.setFixedSize(self.image.size())
-        self.update()
 
-    def get_qimage(self, image: np.ndarray):
-        height, width, colors = image.shape
-        bytesPerLine = 3 * width
-        QImage = QtGui.QImage
-
-        image = QImage(image.data,
-                       width,
-                       height,
-                       bytesPerLine,
-                       QImage.Format_RGB888)
-
-        image = image.rgbSwapped()
-        return image
-
-    def paintEvent(self, event):
-        painter = QtGui.QPainter(self)
-        painter.drawImage(0, 0, self.image)
-        self.image = QtGui.QImage()
-
-
-class MainWidget(QtWidgets.QWidget):
-    def __init__(self, tensorflow_filepath, parent=None):
-        super().__init__(parent)
-        fp = tensorflow_filepath
-        self.object_detection_widget = ObjectDetectionWidget(fp)
-
-        # TODO: set video port
-        self.record_video = RecordVideo()
-
-        image_data_slot = self.object_detection_widget.image_data_slot
-        self.record_video.image_data.connect(image_data_slot)
-
-        layout = QtWidgets.QVBoxLayout()
-
-        layout.addWidget(self.object_detection_widget)
-
-        self.run_button = QtWidgets.QPushButton('Start')
-        layout.addWidget(self.run_button)
-
-        self.run_button.clicked.connect(self.record_video.start_recording)
-
-        # self.dection_button = QtWidgets.QPushButton('detection')
-        # layout.addWidget(self.dection_button)
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        image = QtGui.QImage(frame, frame.shape[1], frame.shape[0], QtGui.QImage.Format_RGB888)
+        pixmap = QtGui.QPixmap.fromImage(image)
+        self.label.setPixmap(pixmap)
+        # results = dbr.decodeBuffer(frame, 0x3FF | 0x2000000 | 0x4000000 | 0x8000000 | 0x10000000)
+        # out = ''
+        # index = 0
+        # for result in results:
+        #     out += "Index: " + str(index) + "\n"
+        #     out += "Barcode format: " + result[0] + '\n'
+        #     out += "Barcode value: " + result[1] + '\n'
+        #     out += '-----------------------------------\n'
+        #     index += 1
         #
-        # self.dection_button.clicked.connect(self.object_detection_widget.obejct_detection_slot)
-        self.setLayout(layout)
+        # self.results.setText(out)
 
-
-def main(tensorflow_filepath):
+def main():
     app = QtWidgets.QApplication(sys.argv)
 
     main_window = QtWidgets.QMainWindow()
-    main_widget = MainWidget(tensorflow_filepath)
+    main_widget = MainWidget()
     main_window.setCentralWidget(main_widget)
     main_window.show()
     sys.exit(app.exec_())
@@ -147,5 +140,4 @@ if __name__ == '__main__':
             serialized_graph = fid.read()
             od_graph_def.ParseFromString(serialized_graph)
             tf.import_graph_def(od_graph_def, name='')
-
-main(tensorflow_filepath)
+    main()
